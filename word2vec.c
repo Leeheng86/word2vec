@@ -17,6 +17,10 @@
 #include <string.h>
 #include <math.h>
 #include <pthread.h>
+#include <time.h>
+#include <string>
+#include <vector>
+#include <unordered_map>
 
 #define MAX_STRING 100
 #define EXP_TABLE_SIZE 1000
@@ -48,6 +52,8 @@ clock_t start;
 int hs = 0, negative = 5;
 const int table_size = 1e8;
 int *table;
+int undirected = 1, deepwalk = 0;
+int walk_length = 40, number_walks = 10;
 
 void InitUnigramTable() {
   int a, i;
@@ -624,6 +630,67 @@ int ArgPos(char *str, int argc, char **argv) {
   return -1;
 }
 
+void addLink(std::unordered_map<long long int, std::vector<long long int> > &umap, long long int from, long long int to) {
+  if (!umap.count(from)) {
+    std::vector<long long int> tmp;
+    umap[from] = tmp;
+  }
+  umap[from].push_back(to);
+}
+
+long long int WalkTo(std::vector<long long int> &neighbors) {
+  int size = neighbors.size();
+  int index = rand() % size;
+  return neighbors[index];
+}
+
+void RandomWalk() {
+  printf("Starting random walk using edge file %s\n", train_file);
+  srand((unsigned)time(NULL));
+  std::unordered_map<long long int, std::vector<long long int> > umap;
+  FILE *fin;
+  fin = fopen(train_file, "rb");
+  if (fin == NULL) {
+    printf("ERROR: training data file not found!\n");
+    exit(1);
+  }
+  while (1) {
+    if (feof(fin)) break;
+    long long int a = 0, b = 0;
+    fscanf(fin, "%lld %lld\n", &a, &b);
+    addLink(umap, a, b);
+    if (undirected) addLink(umap, b, a);
+  }
+  fclose(fin);
+
+  std::string new_train_file = std::string(train_file).append("_walks");
+  printf("Loaded and preprocessed edge file, save walks to file %s\n", new_train_file.c_str());
+  fin = fopen(new_train_file.c_str(), "wb");
+  int k = 1;
+  for (std::unordered_map<long long int, std::vector<long long int> >::iterator it = umap.begin();
+          it != umap.end();
+          it++) {
+    for (int i = 0; i < number_walks; i++) {
+      std::unordered_map<long long int, std::vector<long long int> >::iterator itt = it;
+      std::string str;
+      str.append(std::to_string(itt->first));
+      itt = umap.find(WalkTo(itt->second));
+      for (int j = 0; j <= walk_length; j++) {
+        str.append(" ");
+        str.append(std::to_string(itt->first));
+        itt = umap.find(WalkTo(itt->second));
+      }
+      fprintf(fin, "%s\n", str.c_str());
+    }
+    printf("%cProgress: %.2f%%", 13, k/(real)umap.size()*100);
+    fflush(stdout);
+    k++;
+  }
+  fclose(fin);
+  printf("\n");
+  strcpy(train_file, new_train_file.c_str());
+}
+
 int main(int argc, char **argv) {
   int i;
   if (argc == 1) {
@@ -665,6 +732,14 @@ int main(int argc, char **argv) {
     printf("\t\tThe vocabulary will be read from <file>, not constructed from the training data\n");
     printf("\t-cbow <int>\n");
     printf("\t\tUse the continuous bag of words model; default is 1 (use 0 for skip-gram model)\n");
+    printf("\t-deepwalk <int>\n");
+    printf("\t\tRun random walk before word2vec; default is 0 (off)\n");
+    printf("\t-walk-length <int>\n");
+    printf("\t\tSet the length of walk path; default is 40\n");
+    printf("\t-number-walks <int>\n");
+    printf("\t\tSet the number of restart for each node; default is 10\n");
+    printf("\t-undirected <int>\n");
+    printf("\t\tUse undirected edge or directed; default is 1 (undirected)\n");
     printf("\nExamples:\n");
     printf("./word2vec -train data.txt -output vec.txt -size 200 -window 5 -sample 1e-4 -negative 5 -hs 0 -binary 0 -cbow 1 -iter 3\n\n");
     return 0;
@@ -690,12 +765,19 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iter = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-deepwalk", argc, argv)) > 0) deepwalk = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-walk-length", argc, argv)) > 0) walk_length = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-number-walks", argc, argv)) > 0) number_walks = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-undirected", argc, argv)) > 0) undirected = atoi(argv[i + 1]);
   vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));
   vocab_hash = (int *)calloc(vocab_hash_size, sizeof(int));
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   for (i = 0; i < EXP_TABLE_SIZE; i++) {
     expTable[i] = exp((i / (real)EXP_TABLE_SIZE * 2 - 1) * MAX_EXP); // Precompute the exp() table
     expTable[i] = expTable[i] / (expTable[i] + 1);                   // Precompute f(x) = x / (x + 1)
+  }
+  if (deepwalk == 1) {
+    RandomWalk();
   }
   TrainModel();
   return 0;
