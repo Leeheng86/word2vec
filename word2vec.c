@@ -630,15 +630,15 @@ int ArgPos(char *str, int argc, char **argv) {
   return -1;
 }
 
-void addLink(std::unordered_map<long long int, std::vector<long long int> > &umap, long long int from, long long int to) {
+void addLink(std::unordered_map<std::string, std::vector<std::string> > &umap, std::string from, std::string to) {
   if (!umap.count(from)) {
-    std::vector<long long int> tmp;
+    std::vector<std::string> tmp;
     umap[from] = tmp;
   }
   umap[from].push_back(to);
 }
 
-long long int WalkTo(std::vector<long long int> &neighbors) {
+std::string WalkTo(std::vector<std::string> &neighbors) {
   int size = neighbors.size();
   int index = rand() % size;
   return neighbors[index];
@@ -647,7 +647,7 @@ long long int WalkTo(std::vector<long long int> &neighbors) {
 void RandomWalk() {
   printf("Starting random walk using edge file %s\n", train_file);
   srand((unsigned)time(NULL));
-  std::unordered_map<long long int, std::vector<long long int> > umap;
+  std::unordered_map<std::string, std::vector<std::string> > umap;
   FILE *fin;
   fin = fopen(train_file, "rb");
   if (fin == NULL) {
@@ -656,8 +656,10 @@ void RandomWalk() {
   }
   while (1) {
     if (feof(fin)) break;
-    long long int a = 0, b = 0;
-    fscanf(fin, "%lld %lld\n", &a, &b);
+    char ca[MAX_STRING], cb[MAX_STRING];
+    fscanf(fin, "%s %s\n", ca, cb);
+    std::string a(ca);
+    std::string b(cb);
     addLink(umap, a, b);
     if (undirected) addLink(umap, b, a);
   }
@@ -667,22 +669,22 @@ void RandomWalk() {
   printf("Loaded and preprocessed edge file, save walks to file %s\n", new_train_file.c_str());
   fin = fopen(new_train_file.c_str(), "wb");
   int k = 1;
-  for (std::unordered_map<long long int, std::vector<long long int> >::iterator it = umap.begin();
+  for (std::unordered_map<std::string, std::vector<std::string> >::iterator it = umap.begin();
           it != umap.end();
           it++) {
     for (int i = 0; i < number_walks; i++) {
-      std::unordered_map<long long int, std::vector<long long int> >::iterator itt = it;
+      std::unordered_map<std::string, std::vector<std::string> >::iterator itt = it;
       std::string str;
-      str.append(std::to_string(itt->first));
+      str.append(itt->first);
       itt = umap.find(WalkTo(itt->second));
       for (int j = 0; j <= walk_length; j++) {
         str.append(" ");
-        str.append(std::to_string(itt->first));
+        str.append(itt->first);
         itt = umap.find(WalkTo(itt->second));
       }
       fprintf(fin, "%s\n", str.c_str());
     }
-    printf("%cProgress: %.2f%%", 13, k/(real)umap.size()*100);
+    printf("%cRandom Walk Progress: %.2f%%", 13, k/(real)umap.size()*100);
     fflush(stdout);
     k++;
   }
