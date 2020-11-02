@@ -18,6 +18,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <time.h>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -54,6 +55,8 @@ const int table_size = 1e8;
 int *table;
 int undirected = 1, deepwalk = 0;
 int walk_length = 40, number_walks = 10;
+
+std::unordered_map<std::string, std::vector<std::string> > umap;
 
 void InitUnigramTable() {
   int a, i;
@@ -644,34 +647,28 @@ std::string WalkTo(std::vector<std::string> &neighbors) {
   return neighbors[index];
 }
 
-void RandomWalk() {
-  printf("Starting random walk using edge file %s\n", train_file);
-  srand((unsigned)time(NULL));
-  std::unordered_map<std::string, std::vector<std::string> > umap;
-  FILE *fin;
-  fin = fopen(train_file, "rb");
-  if (fin == NULL) {
-    printf("ERROR: training data file not found!\n");
-    exit(1);
-  }
-  while (1) {
-    if (feof(fin)) break;
-    char ca[MAX_STRING], cb[MAX_STRING];
-    fscanf(fin, "%s %s\n", ca, cb);
-    std::string a(ca);
-    std::string b(cb);
-    addLink(umap, a, b);
-    if (undirected) addLink(umap, b, a);
-  }
-  fclose(fin);
+bool IsNextIElementsEnd(std::unordered_map<std::string, std::vector<std::string> >::iterator it, int i) {
+    std::unordered_map<std::string, std::vector<std::string> >::iterator itt = it;
+    for (int j = 0; j <= i; j++) {
+        if (itt == umap.end()) {
+            return true;
+        }
+        itt++;
+    }
+    return false;
+}
 
-  std::string new_train_file = std::string(train_file).append("_walks");
+void *RandomWalkThread(void *id) {
+  long long thread_id = (long long)id;
+
+  std::string new_train_file = std::string(train_file).append("_walks").append(std::to_string(thread_id));
   printf("Loaded and preprocessed edge file, save walks to file %s\n", new_train_file.c_str());
-  fin = fopen(new_train_file.c_str(), "wb");
-  int k = 1;
-  for (std::unordered_map<std::string, std::vector<std::string> >::iterator it = umap.begin();
-          it != umap.end();
-          it++) {
+  FILE *fin = fopen(new_train_file.c_str(), "wb");
+
+  std::unordered_map<std::string, std::vector<std::string> >::iterator it = std::next(umap.begin(), (int)thread_id);
+  while (it != umap.end()) {
+    //printf("[%lld] process node %s\n", thread_id, (it->first).c_str());
+
     for (int i = 0; i < number_walks; i++) {
       std::unordered_map<std::string, std::vector<std::string> >::iterator itt = it;
       std::string str;
@@ -684,11 +681,54 @@ void RandomWalk() {
       }
       fprintf(fin, "%s\n", str.c_str());
     }
-    printf("%cRandom Walk Progress: %.2f%%", 13, k/(real)umap.size()*100);
-    fflush(stdout);
-    k++;
+
+    if (!IsNextIElementsEnd(it, num_threads)) {
+      it = std::next(it, num_threads);
+    } else {
+      it = umap.end();
+    }
   }
   fclose(fin);
+  pthread_exit(NULL);
+}
+
+void RandomWalk() {
+  printf("Starting random walk using edge file %s\n", train_file);
+  srand((unsigned)time(NULL));
+  //std::unordered_map<std::string, std::vector<std::string> > umap;
+  FILE *fin;
+  fin = fopen(train_file, "rb");
+  if (fin == NULL) {
+    printf("ERROR: training data file not found!\n");
+    exit(1);
+  }
+  // Create Graph
+  // Single thread since std::unordered_map is not thread safe on writing
+  while (1) {
+    if (feof(fin)) break;
+    char ca[MAX_STRING], cb[MAX_STRING];
+    fscanf(fin, "%s %s\n", ca, cb);
+    std::string a(ca);
+    std::string b(cb);
+    addLink(umap, a, b);
+    if (undirected) addLink(umap, b, a);
+  }
+  fclose(fin);
+
+  // Random Walk
+  std::string new_train_file = std::string(train_file).append("_walks");
+  printf("Loaded and preprocessed edge file, save walks to file %s\n", new_train_file.c_str());
+
+  pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
+  for (int a = 0; a < num_threads; a++) pthread_create(&pt[a], NULL, RandomWalkThread, (void *)(long long)a);
+  for (int a = 0; a < num_threads; a++) pthread_join(pt[a], NULL);
+
+  std::ofstream of_walks(new_train_file, std::ios_base::binary);
+  for (int a = 0; a < num_threads; a++) {
+    std::ifstream if_a(std::string(train_file).append("_walks").append(std::to_string(a)), std::ios_base::binary);
+    of_walks << if_a.rdbuf();
+  }
+
   printf("\n");
   strcpy(train_file, new_train_file.c_str());
 }
