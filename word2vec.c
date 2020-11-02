@@ -20,6 +20,7 @@
 #include <time.h>
 #include <fstream>
 #include <string>
+#include <set>
 #include <vector>
 #include <unordered_map>
 
@@ -55,8 +56,11 @@ const int table_size = 1e8;
 int *table;
 int undirected = 1, deepwalk = 0;
 int walk_length = 40, number_walks = 10;
+int discard = 0;
 
 std::unordered_map<std::string, std::vector<std::string> > umap;
+std::set<std::string> left_node;
+std::set<std::string> right_node;
 
 void InitUnigramTable() {
   int a, i;
@@ -658,6 +662,29 @@ bool IsNextIElementsEnd(std::unordered_map<std::string, std::vector<std::string>
     return false;
 }
 
+void append(std::vector<std::string> &v, std::string node) {
+  if (discard == 0) {
+    v.push_back(node);
+  } else if (discard == 1 && !left_node.count(node)) {
+    v.push_back(node);
+  } else if (discard == 2 && !right_node.count(node)) {
+    v.push_back(node);
+  }
+  return;
+}
+
+void join(std::vector<std::string> &v, char c, std::string &s) {
+  s.clear();
+  for (std::vector<std::string>::const_iterator it = v.begin();
+          it != v.end();
+          it++) {
+      s += *it;
+      if (it != v.end() - 1) {
+        s += c;
+      }
+  }
+}
+
 void *RandomWalkThread(void *id) {
   long long thread_id = (long long)id;
 
@@ -672,13 +699,14 @@ void *RandomWalkThread(void *id) {
     for (int i = 0; i < number_walks; i++) {
       std::unordered_map<std::string, std::vector<std::string> >::iterator itt = it;
       std::string str;
-      str.append(itt->first);
+      std::vector<std::string> v;
+      append(v, itt->first);
       itt = umap.find(WalkTo(itt->second));
       for (int j = 0; j <= walk_length; j++) {
-        str.append(" ");
-        str.append(itt->first);
+        append(v, itt->first);
         itt = umap.find(WalkTo(itt->second));
       }
+      join(v, ' ', str);
       fprintf(fin, "%s\n", str.c_str());
     }
 
@@ -710,6 +738,11 @@ void RandomWalk() {
     fscanf(fin, "%s %s\n", ca, cb);
     std::string a(ca);
     std::string b(cb);
+
+    // remember the original position
+    left_node.insert(a);
+    right_node.insert(b);
+
     addLink(umap, a, b);
     if (undirected) addLink(umap, b, a);
   }
@@ -717,15 +750,15 @@ void RandomWalk() {
 
   // Random Walk
   std::string new_train_file = std::string(train_file).append("_walks");
-  printf("Loaded and preprocessed edge file, save walks to file %s\n", new_train_file.c_str());
 
   pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
   for (int a = 0; a < num_threads; a++) pthread_create(&pt[a], NULL, RandomWalkThread, (void *)(long long)a);
   for (int a = 0; a < num_threads; a++) pthread_join(pt[a], NULL);
 
+  printf("Loaded and preprocessed threads produced edge file, save all walks to file %s\n", new_train_file.c_str());
   std::ofstream of_walks(new_train_file, std::ios_base::binary);
   for (int a = 0; a < num_threads; a++) {
-    std::ifstream if_a(std::string(train_file).append("_walks").append(std::to_string(a)), std::ios_base::binary);
+    std::ifstream if_a(std::string(train_file).append("_walks").append(std::to_string((long long)a)), std::ios_base::binary);
     of_walks << if_a.rdbuf();
   }
 
@@ -811,6 +844,7 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-walk-length", argc, argv)) > 0) walk_length = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-number-walks", argc, argv)) > 0) number_walks = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-undirected", argc, argv)) > 0) undirected = atoi(argv[i + 1]);
+  if ((i = ArgPos((char *)"-discard", argc, argv)) > 0) discard = atoi(argv[i + 1]);
   vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));
   vocab_hash = (int *)calloc(vocab_hash_size, sizeof(int));
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
