@@ -747,6 +747,8 @@ void RandomWalk() {
     if (undirected) addLink(umap, b, a);
   }
   fclose(fin);
+  printf("# of left node: %lu\n", left_node.size());
+  printf("# of right node: %lu\n", right_node.size());
 
   // Random Walk
   std::string new_train_file = std::string(train_file).append("_walks");
