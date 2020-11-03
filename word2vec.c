@@ -740,15 +740,23 @@ void RandomWalk() {
     std::string b(cb);
 
     // remember the original position
-    left_node.insert(a);
-    right_node.insert(b);
+    if (discard == 1) {
+      left_node.insert(a);
+    }
+    if (discard == 2) {
+      right_node.insert(b);
+    }
 
     addLink(umap, a, b);
     if (undirected) addLink(umap, b, a);
   }
   fclose(fin);
-  printf("# of left node: %lu\n", left_node.size());
-  printf("# of right node: %lu\n", right_node.size());
+  if (discard == 1) {
+    printf("# of left node: %lu\n", left_node.size());
+  }
+  if (discard == 2) {
+    printf("# of right node: %lu\n", right_node.size());
+  }
 
   // Random Walk
   std::string new_train_file = std::string(train_file).append("_walks");
